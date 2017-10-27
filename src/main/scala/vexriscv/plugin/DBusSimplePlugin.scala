@@ -121,8 +121,8 @@ case class DBusSimpleBus() extends Bundle with IMasterSlave{
     axi.writeCmd.valid := writeCmd.valid && writeCmd.wr
     axi.writeCmd.prot := "010"
     axi.writeCmd.cache := "1111"
-    axi.writeCmd.size := cmdFork.size.resized
-    axi.writeCmd.addr := cmdFork.address
+    axi.writeCmd.size := writeCmd.size.resized
+    axi.writeCmd.addr := writeCmd.address
 
     val readFork = forks(1) 
     val readCmd = readFork.throwWhen(!readFork.wr)
@@ -130,8 +130,8 @@ case class DBusSimpleBus() extends Bundle with IMasterSlave{
     axi.readCmd.valid := readCmd.valid && !readCmd.wr
     axi.readCmd.prot := "010"
     axi.readCmd.cache := "1111"
-    axi.readCmd.size := cmdFork.size.resized
-    axi.readCmd.addr := cmdFork.address
+    axi.readCmd.size := readCmd.size.resized
+    axi.readCmd.addr := readCmd.address
 
     val dataFork = forks(2)
     val dataCmd = dataFork.throwWhen(!dataFork.wr)
