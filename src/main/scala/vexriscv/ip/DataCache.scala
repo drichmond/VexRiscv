@@ -3,7 +3,7 @@ package vexriscv.ip
 import vexriscv._
 import spinal.core._
 import spinal.lib._
-import spinal.lib.bus.amba4.axi.{Axi4Shared, Axi4Config}
+import spinal.lib.bus.amba4.axi.{Axi4Shared, Axi4Config, Axi4}
 import spinal.lib.bus.avalon.{AvalonMM, AvalonMMConfig}
 
 
@@ -25,6 +25,16 @@ case class DataCacheConfig( cacheSize : Int,
   def catchSomething = catchUnaligned || catchMemoryTranslationMiss || catchIllegal || catchAccessError
 
   def getAxi4SharedConfig() = Axi4Config(
+    addressWidth = addressWidth,
+    dataWidth = memDataWidth,
+    useId = false,
+    useRegion = false,
+    useBurst = false,
+    useLock = false,
+    useQos = false
+  )
+
+  def getAxi4Config() = Axi4Config(
     addressWidth = addressWidth,
     dataWidth = memDataWidth,
     useId = false,
@@ -262,6 +272,57 @@ case class DataCacheMemBus(p : DataCacheConfig) extends Bundle with IMasterSlave
     axi2
   }
 
+  def toAxi4(stageCmd : Boolean = true): Axi4 = {
+    val axi = Axi4(p.getAxi4Config())
+    val pendingWritesMax = 7
+    val pendingWrites = CounterUpDown(
+      stateCount = pendingWritesMax + 1,
+      incWhen = axi.writeCmd.valid,
+      decWhen = axi.writeRsp.fire
+    )
+
+    val cmdPreFork = if (stageCmd) cmd.stage.stage().s2mPipe() else cmd
+    val hazard = (pendingWrites =/= 0 && !cmdPreFork.wr) || pendingWrites === pendingWritesMax
+    val (cmdFork, dataFork) = StreamFork2(cmdPreFork.haltWhen(hazard))
+    val cmdStage  = cmdFork.throwWhen(RegNextWhen(!cmdFork.last,cmdFork.fire).init(False))
+    val dataStage = dataFork.throwWhen(!dataFork.wr)
+
+    axi.writeCmd.arbitrationFrom(cmdStage)
+    axi.writeCmd.valid := cmdStage.valid && cmdStage.wr
+    axi.writeCmd.prot := "010"
+    axi.writeCmd.cache := "1111"
+    axi.writeCmd.size := log2Up(p.memDataWidth/8)
+    axi.writeCmd.addr := cmdStage.address
+    axi.writeCmd.len := cmdStage.length.resized
+
+    axi.readCmd.arbitrationFrom(cmdStage)
+    axi.readCmd.valid := cmdStage.valid && !cmdStage.wr
+    axi.readCmd.prot := "010"
+    axi.readCmd.cache := "1111"
+    axi.readCmd.size := log2Up(p.memDataWidth/8)
+    axi.readCmd.addr := cmdStage.address
+    axi.readCmd.len := cmdStage.length.resized
+
+    axi.writeData.arbitrationFrom(dataStage)
+    axi.writeData.data := dataStage.data
+    axi.writeData.strb := dataStage.mask
+    axi.writeData.last := dataStage.last
+
+    rsp.valid := axi.r.valid
+    rsp.error := !axi.r.isOKAY()
+    rsp.data := axi.r.data
+
+    axi.r.ready := True
+    axi.b.ready := True
+
+    val axi2 = Axi4(p.getAxi4Config())
+    axi.ar >-> axi2.ar
+    axi.aw >-> axi2.aw
+    axi.w >> axi2.w
+    axi.r << axi2.r
+    axi.b << axi2.b
+    axi2
+  }
 
   def toAvalon(): AvalonMM = {
     val avalonConfig = p.getAvalonConfig()
