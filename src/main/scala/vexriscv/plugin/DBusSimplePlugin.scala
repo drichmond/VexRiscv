@@ -103,7 +103,68 @@ case class DBusSimpleBus() extends Bundle with IMasterSlave{
     axi2
   }
 
+  def toAxi4(stageCmd : Boolean = true): Axi4 = {
+    val axi = Axi4(DBusSimpleBus.getAxi4Config())
+    val pendingWritesMax = 7
+    val pendingWrites = CounterUpDown(
+      stateCount = pendingWritesMax + 1,
+      incWhen = axi.writeCmd.valid,
+      decWhen = axi.writeRsp.fire
+    )
 
+    val cmdPreFork = if (stageCmd) cmd.stage.stage().s2mPipe() else cmd
+    val (cmdFork, dataFork) = StreamFork2(cmdPreFork.haltWhen((pendingWrites =/= 0 && !cmdPreFork.wr) || pendingWrites === pendingWritesMax))
+    axi.writeCmd.arbitrationFrom(cmdFork)
+    axi.writeCmd.valid := cmdFork.valid && cmdFork.wr
+    axi.writeCmd.prot := "010"
+    axi.writeCmd.cache := "1111"
+    axi.writeCmd.size := cmdFork.size.resized
+    axi.writeCmd.addr := cmdFork.address
+
+    axi.readCmd.arbitrationFrom(cmdFork)
+    axi.readCmd.valid := cmdFork.valid && !cmdFork.wr
+    axi.readCmd.prot := "010"
+    axi.readCmd.cache := "1111"
+    axi.readCmd.size := cmdFork.size.resized
+    axi.readCmd.addr := cmdFork.address
+
+    val dataStage = dataFork.throwWhen(!dataFork.wr)
+    axi.writeData.arbitrationFrom(dataStage)
+    axi.writeData.last := True
+    axi.writeData.data := dataStage.data
+    axi.writeData.strb := (dataStage.size.mux(
+      U(0) -> B"0001",
+      U(1) -> B"0011",
+      default -> B"1111"
+    ) << dataStage.address(1 downto 0)).resized
+
+    rsp.ready := axi.r.valid
+    rsp.error := !axi.r.isOKAY()
+    rsp.data := axi.r.data
+
+    axi.r.ready := True
+    axi.b.ready := True
+
+    val axi2 = Axi4(DBusSimpleBus.getAxi4Config())
+    axi.ar >-> axi2.ar
+    axi.aw >-> axi2.aw
+    axi.w >> axi2.w
+    axi.r << axi2.r
+    axi.b << axi2.b
+    axi2
+
+/*
+    //TODO remove
+    val axi2 = Axi4Shared(DBusSimpleBus.getAxi4Config())
+    axi.aw >-> axi2.aw
+    axi.ar >-> axi2.ar
+    axi.w >> axi2.w
+    axi.r << axi2.r
+    axi.b << axi2.b
+//    axi2 << axi
+    axi2
+ */
+  }
 
   def toAvalon(stageCmd : Boolean = true): AvalonMM = {
     val avalonConfig = DBusSimpleBus.getAvalonConfig()
