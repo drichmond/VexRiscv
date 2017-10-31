@@ -114,19 +114,22 @@ case class DBusSimpleBus() extends Bundle with IMasterSlave{
 
     val cmdPreFork = if (stageCmd) cmd.stage.stage().s2mPipe() else cmd
     val (cmdFork, dataFork) = StreamFork2(cmdPreFork.haltWhen((pendingWrites =/= 0 && !cmdPreFork.wr) || pendingWrites === pendingWritesMax))
-    axi.writeCmd.arbitrationFrom(cmdFork)
-    axi.writeCmd.valid := cmdFork.valid && cmdFork.wr
+
+    val writeCmd = dataFork.throwWhen(!cmdFork.wr)
+    axi.writeCmd.arbitrationFrom(writeCmd)
+    axi.writeCmd.valid := writeCmd.valid && writeCmd.wr
     axi.writeCmd.prot := "010"
     axi.writeCmd.cache := "1111"
-    axi.writeCmd.size := cmdFork.size.resized
-    axi.writeCmd.addr := cmdFork.address
+    axi.writeCmd.size := writeCmd.size.resized
+    axi.writeCmd.addr := writeCmd.address
 
-    axi.readCmd.arbitrationFrom(cmdFork)
-    axi.readCmd.valid := cmdFork.valid && !cmdFork.wr
+    val readCmd = dataFork.throwWhen(cmdFork.wr)
+    axi.readCmd.arbitrationFrom(readCmd)
+    axi.readCmd.valid := readCmd.valid && !readCmd.wr
     axi.readCmd.prot := "010"
     axi.readCmd.cache := "1111"
-    axi.readCmd.size := cmdFork.size.resized
-    axi.readCmd.addr := cmdFork.address
+    axi.readCmd.size := readCmd.size.resized
+    axi.readCmd.addr := readCmd.address
 
     val dataStage = dataFork.throwWhen(!dataFork.wr)
     axi.writeData.arbitrationFrom(dataStage)

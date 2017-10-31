@@ -283,30 +283,33 @@ case class DataCacheMemBus(p : DataCacheConfig) extends Bundle with IMasterSlave
 
     val cmdPreFork = if (stageCmd) cmd.stage.stage().s2mPipe() else cmd
     val hazard = (pendingWrites =/= 0 && !cmdPreFork.wr) || pendingWrites === pendingWritesMax
+    val inProgress = RegNextWhen(cmdPreFork.wr && !cmdPreFork.last, cmdPreFork.wr)
     val (cmdFork, dataFork) = StreamFork2(cmdPreFork.haltWhen(hazard))
-    val cmdStage  = cmdFork.throwWhen(RegNextWhen(!cmdFork.last,cmdFork.fire).init(False))
+
+    // ThrowWhen = Return a stream connected to cmdFork when RegNextWhen is true
+    // RegNextWhen = Sample !cmdFork.last when cmdFork.fire is true (ready & valid)
     val dataStage = dataFork.throwWhen(!dataFork.wr)
 
-    axi.writeCmd.arbitrationFrom(cmdStage)
-    axi.writeCmd.valid := cmdStage.valid && cmdStage.wr
+    axi.writeCmd.arbitrationFrom(cmdFork)
+    axi.writeCmd.valid := cmdFork.valid && cmdFork.wr && !inProgress
     axi.writeCmd.prot := "010"
     axi.writeCmd.cache := "1111"
     axi.writeCmd.size := log2Up(p.memDataWidth/8)
-    axi.writeCmd.addr := cmdStage.address
-    axi.writeCmd.len := cmdStage.length.resized
+    axi.writeCmd.addr := cmdFork.address
+    axi.writeCmd.len := cmdFork.length.resized
 
-    axi.readCmd.arbitrationFrom(cmdStage)
-    axi.readCmd.valid := cmdStage.valid && !cmdStage.wr
+    axi.readCmd.arbitrationFrom(cmdFork)
+    axi.readCmd.valid := cmdFork.valid && !cmdFork.wr
     axi.readCmd.prot := "010"
     axi.readCmd.cache := "1111"
     axi.readCmd.size := log2Up(p.memDataWidth/8)
-    axi.readCmd.addr := cmdStage.address
-    axi.readCmd.len := cmdStage.length.resized
+    axi.readCmd.addr := cmdFork.address
+    axi.readCmd.len := cmdFork.length.resized
 
     axi.writeData.arbitrationFrom(dataStage)
     axi.writeData.data := dataStage.data
     axi.writeData.strb := dataStage.mask
-    axi.writeData.last := dataStage.last
+    axi.writeData.last := dataStage.last & dataFork.wr
 
     rsp.valid := axi.r.valid
     rsp.error := !axi.r.isOKAY()
@@ -315,12 +318,9 @@ case class DataCacheMemBus(p : DataCacheConfig) extends Bundle with IMasterSlave
     axi.r.ready := True
     axi.b.ready := True
 
-    val axi2 = Axi4(p.getAxi4Config())
-    axi.ar >-> axi2.ar
-    axi.aw >-> axi2.aw
-    axi.w >> axi2.w
-    axi.r << axi2.r
-    axi.b << axi2.b
+    //TODO remove
+    val axi2 = cloneOf(axi)
+    axi2 << axi
     axi2
   }
 
