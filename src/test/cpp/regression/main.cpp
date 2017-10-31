@@ -137,7 +137,7 @@ void loadHexImpl(string path,Memory* mem) {
 #define TEXTIFY(A) #A
 
 #define assertEq(x,ref) if(x != ref) {\
-	printf("\n*** %s is %d but should be %d ***\n\n",TEXTIFY(x),x,ref);\
+	printf("\n*** %s is %x but should be %d ***\n\n",TEXTIFY(x),x,ref);\
 	throw std::exception();\
 }
 
@@ -241,7 +241,10 @@ public:
 					 | (mem[addr + 1] << 8)
 					 | (mem[addr + 2] << 16)
 					 | (mem[addr + 3] << 24));
+//		printf("Instruction Bus access! Address: %x, data;%x\n", addr, *data);
 		*error = addr == 0xF00FFF60u;
+//		printf("Instruction Bus access! Address: %x, data;%x\n", addr, *data);
+
 	}
 	virtual void dBusAccess(uint32_t addr,bool wr, uint32_t size,uint32_t mask, uint32_t *data, bool *error) {
 		assertEq(addr % (1 << size), 0);
@@ -434,6 +437,7 @@ public:
 						uint32_t expectedData;
 						bool dummy;
 						iBusAccess(top->VexRiscv->decode_PC, &expectedData, &dummy);
+//						printf("top->VexRiscv->decode_INSTRUCTION: %x expected Data: %x\n", top->VexRiscv->decode_INSTRUCTION, expectedData);
 						assertEq(top->VexRiscv->decode_INSTRUCTION,expectedData);
 					}
 				}
@@ -569,6 +573,52 @@ public:
 };
 #endif
 
+#ifdef IBUS_SIMPLE_AXI
+#include <queue>
+struct IBusSimpleAxiRsp{
+	uint32_t data;
+	bool error;
+};
+
+
+class IBusSimpleAxi : public SimElement{
+public:
+	queue<IBusSimpleAxiRsp> rsps;
+	uint32_t inst_next = 19;
+	bool error_next = false;
+	bool pending = false;
+
+	Workspace *ws;
+	VVexRiscv* top;
+	IBusSimpleAxi(Workspace* ws){
+		this->ws = ws;
+		this->top = ws->top;
+	}
+
+	virtual void onReset(){
+		top->iBusAxi_ar_ready = 1;
+		top->iBusAxi_r_valid = 0;
+	}
+
+	virtual void preCycle(){
+		if (top->iBusAxi_ar_ready && top->iBusAxi_ar_valid && !pending) {
+			pending = true;
+			ws->iBusAccess(top->iBusAxi_ar_payload_addr,&inst_next,&error_next);
+		}
+	}
+	//TODO doesn't catch when instruction removed ?
+	virtual void postCycle(){
+		top->iBusAxi_r_valid = !pending;
+		if(pending && (!ws->iStall || VL_RANDOM_I(7) < 100)){
+			top->iBusAxi_r_payload_data = inst_next;
+			pending = false;
+			top->iBusAxi_r_valid = 1;
+			top->iBusAxi_r_payload_resp = 0;
+		}
+		if(ws->iStall) top->iBusAxi_ar_ready = VL_RANDOM_I(7) < 100 && !pending;
+	}
+};
+#endif
 
 #ifdef IBUS_CACHED
 class IBusCached : public SimElement{
@@ -667,6 +717,68 @@ public:
 		}
 		if(ws->iStall)
 			top->iBusAvalon_waitRequestn = VL_RANDOM_I(7) < 100;
+	}
+};
+#endif
+
+#ifdef IBUS_CACHED_AXI
+#include <queue>
+
+struct IBusCachedAxiTask{
+	uint32_t address;
+	uint32_t pendingCount;
+};
+
+class IBusCachedAxi : public SimElement{
+public:
+	uint32_t inst_next = VL_RANDOM_I(32);
+	bool error_next = false;
+
+	queue<IBusCachedAxiTask> tasks;
+	Workspace *ws;
+	VVexRiscv* top;
+
+	IBusCachedAxi(Workspace* ws){
+		this->ws = ws;
+		this->top = ws->top;
+	}
+
+	virtual void onReset(){
+		top->iBusAxi_ar_ready = 1;
+		top->iBusAxi_r_valid = 0;
+	}
+
+	virtual void preCycle(){
+		if (top->iBusAxi_ar_ready && top->iBusAxi_ar_valid) {
+			assertEq(top->iBusAxi_ar_payload_addr & 3, 0);
+			IBusCachedAxiTask task;
+			task.address = top->iBusAxi_ar_payload_addr;
+			task.pendingCount = top->iBusAxi_ar_payload_len + 1;
+			tasks.push(task);
+		}
+	}
+
+	virtual void postCycle(){
+		bool error;
+		top->iBusAxi_r_valid = 0;
+		top->iBusAxi_r_payload_last = 0;
+		if(!tasks.empty() && (!ws->iStall || VL_RANDOM_I(7) < 100)){
+			uint32_t &address = tasks.front().address;
+			uint32_t &pendingCount = tasks.front().pendingCount;
+			uint32_t data;
+			ws->iBusAccess(address,&data,&error);
+//			printf("postCycle data: %x\n", data);
+			top->iBusAxi_r_payload_data = data;
+			top->iBusAxi_r_payload_resp = error ? 3 : 0;
+			pendingCount--;
+			address = (address & ~0x1F) + ((address + 4) & 0x1F);
+			top->iBusAxi_r_valid = 1;
+			if(pendingCount == 0)
+				top->iBusAxi_r_payload_last = 1;
+				tasks.pop();
+		}
+		if(ws->iStall)
+			top->iBusAxi_r_valid = VL_RANDOM_I(7) < 100;
 	}
 };
 #endif
@@ -901,6 +1013,91 @@ public:
 		}
 
 		top->dBusAvalon_waitRequestn = (ws->dStall ? VL_RANDOM_I(7) < 100 : 1);
+	}
+};
+#endif
+
+#ifdef DBUS_CACHED_AXI
+#include <queue>
+
+struct DBusCachedAxiTask{
+	uint32_t data;
+	bool error;
+};
+
+struct DBusCachedAxiCmd{
+	uint32_t addr;
+	uint32_t len;
+};
+
+class DBusCachedAxi : public SimElement{
+public:
+	uint32_t wBeatCounter = 0, rBeatCounter =0 ;
+	queue<DBusCachedAxiCmd> wcmds;
+	queue<DBusCachedAxiCmd> rcmds;	
+	queue<DBusCachedAxiTask> rsps;
+
+	Workspace *ws;
+	VVexRiscv* top;
+	DBusCachedAxi(Workspace* ws){
+		this->ws = ws;
+		this->top = ws->top;
+	}
+
+	virtual void onReset(){
+		top->dBusAxi_ar_ready = 1;
+		top->dBusAxi_aw_ready = 1;
+		top->dBusAxi_r_valid = 0;
+		top->dBusAxi_w_valid = 0;		
+	}
+
+
+	virtual void preCycle(){
+		bool error_next = false;
+		if ((top->dBusAxi_aw_valid && top->dBusAxi_aw_ready)) {
+			printf("Write Command!\n");
+			wcmds.push({top->dBusAxi_aw_payload_addr, top->dBusAxi_aw_payload_len});
+		} else if ((top->dBusAxi_w_valid && top->dBusAxi_w_ready)) {
+			assert(!wcmds.empty());
+			ws->dBusAccess(wcmds.front().addr + wBeatCounter * 4, 1/*write*/, 2,
+				top->dBusAxi_w_payload_strb,
+				&top->dBusAxi_w_payload_data,
+				&error_next);
+			printf("Write Command Executing: addr:%x data: %x!\n",
+				wcmds.front().addr + wBeatCounter *4,
+				top->dBusAxi_w_payload_data);
+			wBeatCounter++;
+			if(wBeatCounter == wcmds.front().len){
+				wBeatCounter = 0;
+				wcmds.pop();
+			}
+		}
+
+		if (!rcmds.empty()) {
+			for(int beat = 0;beat < wcmds.front().len;beat++){
+				DBusCachedAxiTask rsp;
+				ws->dBusAccess(rcmds.front().addr + beat * 4,0,2,0,&rsp.data,&rsp.error);
+				rsps.push(rsp);
+			}
+			rcmds.pop();
+		}
+		if ((top->dBusAxi_ar_valid && top->dBusAxi_ar_ready)) {
+			rcmds.push({top->dBusAxi_ar_payload_addr, top->dBusAxi_ar_payload_len});
+		}
+	}
+
+	virtual void postCycle(){
+		if(!rsps.empty() && (!ws->dStall || VL_RANDOM_I(7) < 100)){
+			DBusCachedAxiTask rsp = rsps.front();
+			rsps.pop();
+			top->dBusAxi_r_payload_resp = rsp.error ? 3 : 0;
+			top->dBusAxi_r_payload_data = rsp.data;
+			top->dBusAxi_r_valid = 1;
+		} else{
+			top->dBusAxi_r_payload_resp = 0;
+			top->dBusAxi_r_payload_data = VL_RANDOM_I(32);
+			top->dBusAxi_r_valid = 0;
+		}
 	}
 };
 #endif
@@ -1201,6 +1398,9 @@ void Workspace::fillSimELements(){
 	#ifdef IBUS_CACHED_AVALON
 		simElements.push_back(new IBusCachedAvalon(this));
 	#endif
+	#ifdef IBUS_CACHED_AXI
+		simElements.push_back(new IBusCachedAxi(this));
+	#endif
 	#ifdef DBUS_SIMPLE
 		simElements.push_back(new DBusSimple(this));
 	#endif
@@ -1212,6 +1412,9 @@ void Workspace::fillSimELements(){
 	#endif
 	#ifdef DBUS_CACHED_AVALON
 		simElements.push_back(new DBusCachedAvalon(this));
+	#endif
+	#ifdef DBUS_CACHED_AXI
+		simElements.push_back(new DBusCachedAxi(this));
 	#endif
 	#ifdef DEBUG_PLUGIN_STD
 		simElements.push_back(new DebugPluginStd(this));
@@ -1233,6 +1436,30 @@ uint32_t regFileWriteRefArray[][2] = {
 	testA1ReagFileWriteRef,
 	testA2ReagFileWriteRef,
 	testA2ReagFileWriteRef
+};
+
+class Add : public Workspace{
+public:
+
+
+	uint32_t regFileWriteRefIndex = 0;
+
+	Add() : Workspace("Add") {
+		loadHex("../../resources/hex/add.hex");
+	}
+
+	virtual void checks(){
+		if(top->VexRiscv->writeBack_RegFilePlugin_regFileWrite_valid == 1 && top->VexRiscv->writeBack_RegFilePlugin_regFileWrite_payload_address != 0){
+			assertEq(top->VexRiscv->writeBack_RegFilePlugin_regFileWrite_payload_address, regFileWriteRefArray[regFileWriteRefIndex][0]);
+			assertEq(top->VexRiscv->writeBack_RegFilePlugin_regFileWrite_payload_data, regFileWriteRefArray[regFileWriteRefIndex][1]);
+			//printf("%d\n",i);
+
+			regFileWriteRefIndex++;
+			if(regFileWriteRefIndex == sizeof(regFileWriteRefArray)/sizeof(regFileWriteRefArray[0])){
+				pass();
+			}
+		}
+	}
 };
 
 class TestA : public Workspace{
@@ -1322,7 +1549,9 @@ public:
 
 	virtual void iBusAccess(uint32_t addr, uint32_t *data, bool *error){
 		Workspace::iBusAccess(addr,data,error);
+//		printf("Instruction Bus access! Address: %x, data;%x\n", addr, *data);
 		if(*data == 0x0ff0000f) *data = 0x00000013;
+//		printf("Instruction Bus access! Address: %x, data;%x\n", addr, *data);
 	}
 };
 #endif
