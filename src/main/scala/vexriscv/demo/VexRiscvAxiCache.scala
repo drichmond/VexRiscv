@@ -28,8 +28,8 @@ object VexRiscvAxiCache{
           ),
           new IBusCachedPlugin(
             config = InstructionCacheConfig(
-              cacheSize = 4096,
-              bytePerLine =32,
+              cacheSize = 256,
+              bytePerLine = 32,
               wayCount = 1,
               wrappedMemAccess = true,
               addressWidth = 32,
