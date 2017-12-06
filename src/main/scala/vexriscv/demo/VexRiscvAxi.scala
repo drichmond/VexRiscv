@@ -34,22 +34,6 @@ object VexRiscvAxi{
             interfaceKeepData = false,
             catchAccessFault = false
           ),
-/*          new IBusCachedPlugin(
-            config = InstructionCacheConfig(
-              cacheSize = 4096,
-              bytePerLine =32,
-              wayCount = 1,
-              wrappedMemAccess = true,
-              addressWidth = 32,
-              cpuDataWidth = 32,
-              memDataWidth = 32,
-              catchIllegalAccess = false,
-              catchAccessFault = false,
-              catchMemoryTranslationMiss = false,
-              asyncTagMemory = false,
-              twoStageLogic = true
-            )
-          ),*/
           new DecoderSimplePlugin(
             catchIllegalInstruction = false
           ),
@@ -63,8 +47,8 @@ object VexRiscvAxi{
             executeInsertion = true
           ),
           new FullBarrielShifterPlugin,
-          //new MulPlugin,
-          //new DivPlugin,
+          new MulPlugin,
+          new DivPlugin,
           new HazardSimplePlugin(
             bypassExecute           = true,
             bypassMemory            = true,
@@ -74,14 +58,13 @@ object VexRiscvAxi{
             pessimisticWriteRegFile = false,
             pessimisticAddressMatch = false
           ),
-          //new DebugPlugin(ClockDomain.current.clone(reset = Bool().setName("debugReset"))),
           new BranchPlugin(
             earlyBranch = false,
             catchAddressMisaligned = true,
             prediction = STATIC
           ),
           new CsrPlugin(
-            CsrPluginConfig.smallest
+            CsrPluginConfig.all
           ),
           new YamlPlugin("cpu0.yaml")
         )

@@ -80,8 +80,8 @@ object VexRiscvAxiCache{
             executeInsertion = true
           ),
           new FullBarrielShifterPlugin,
-          //new MulPlugin,
-          //new DivPlugin,
+          new MulPlugin,
+          new DivPlugin,
           new HazardSimplePlugin(
             bypassExecute           = true,
             bypassMemory            = true,
@@ -97,7 +97,7 @@ object VexRiscvAxiCache{
             prediction = STATIC
           ),
           new CsrPlugin(
-            CsrPluginConfig.smallest
+            CsrPluginConfig.all
           ),
           new YamlPlugin("cpu0.yaml")
         )
