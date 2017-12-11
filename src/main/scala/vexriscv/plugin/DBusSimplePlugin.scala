@@ -125,7 +125,7 @@ case class DBusSimpleBus() extends Bundle with IMasterSlave{
     axi.writeCmd.addr := writeCmd.address
 
     val readFork = forks(1) 
-    val readCmd = readFork.throwWhen(!readFork.wr)
+    val readCmd = readFork.throwWhen(readFork.wr)
     readCmd.ready := axi.readCmd.ready
     axi.readCmd.valid := readCmd.valid && !readCmd.wr
     axi.readCmd.prot := "010"

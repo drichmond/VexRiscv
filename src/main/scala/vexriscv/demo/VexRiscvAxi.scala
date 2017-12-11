@@ -39,7 +39,7 @@ object VexRiscvAxi{
           ),
           new RegFilePlugin(
             regFileReadyKind = plugin.SYNC,
-            zeroBoot = false
+            zeroBoot = true
           ),
           new IntAluPlugin,
           new SrcPlugin(
@@ -60,7 +60,7 @@ object VexRiscvAxi{
           ),
           new BranchPlugin(
             earlyBranch = false,
-            catchAddressMisaligned = true,
+            catchAddressMisaligned = false,
             prediction = STATIC
           ),
           new CsrPlugin(
