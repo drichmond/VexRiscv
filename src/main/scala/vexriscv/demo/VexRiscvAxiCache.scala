@@ -28,8 +28,8 @@ object VexRiscvAxiCache{
           ),
           new IBusCachedPlugin(
             config = InstructionCacheConfig(
-              cacheSize = 256,
-              bytePerLine = 32,
+              cacheSize = 1024, // Bytes
+              bytePerLine = 32, 
               wayCount = 1,
               wrappedMemAccess = true,
               addressWidth = 32,
@@ -44,7 +44,7 @@ object VexRiscvAxiCache{
           ),
           new DBusCachedPlugin(
             config = new DataCacheConfig(
-              cacheSize         = 128,
+              cacheSize         = 1024,
               bytePerLine       = 32,
               wayCount          = 1,
               addressWidth      = 32,
@@ -94,7 +94,9 @@ object VexRiscvAxiCache{
           new BranchPlugin(
             earlyBranch = false,
             catchAddressMisaligned = false,
-            prediction = STATIC
+            prediction = DYNAMIC,
+            historyRamSizeLog2 = 5,
+            historyWidth = 2
           ),
           new CsrPlugin(
             CsrPluginConfig.all
