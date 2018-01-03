@@ -15,7 +15,7 @@ import spinal.lib.eda.altera.{ResetEmitterTag, InterruptReceiverTag, QSysify}
   */
 
 
-object VexRiscvAxiCache{
+object VexRiscvAxiCacheBp{
   def main(args: Array[String]) {
     val report = SpinalVerilog{
 
@@ -28,7 +28,7 @@ object VexRiscvAxiCache{
           ),
           new IBusCachedPlugin(
             config = InstructionCacheConfig(
-              cacheSize = 1024, // Bytes
+              cacheSize = 8192, // Bytes
               bytePerLine = 32, 
               wayCount = 1,
               wrappedMemAccess = true,
@@ -44,7 +44,7 @@ object VexRiscvAxiCache{
           ),
           new DBusCachedPlugin(
             config = new DataCacheConfig(
-              cacheSize         = 1024,
+              cacheSize         = 8192,
               bytePerLine       = 32,
               wayCount          = 1,
               addressWidth      = 32,
@@ -94,7 +94,9 @@ object VexRiscvAxiCache{
           new BranchPlugin(
             earlyBranch = false,
             catchAddressMisaligned = false,
-            prediction = STATIC
+            prediction = DYNAMIC,
+            historyRamSizeLog2 = 5,
+            historyWidth = 2
           ),
           new CsrPlugin(
             CsrPluginConfig.all
