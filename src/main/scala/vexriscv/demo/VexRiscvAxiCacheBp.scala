@@ -29,7 +29,7 @@ object VexRiscvAxiCacheBp{
           new IBusCachedPlugin(
             config = InstructionCacheConfig(
               cacheSize = 8192, // Bytes
-              bytePerLine = 32, 
+              bytePerLine = 16, 
               wayCount = 1,
               wrappedMemAccess = true,
               addressWidth = 32,
@@ -45,7 +45,7 @@ object VexRiscvAxiCacheBp{
           new DBusCachedPlugin(
             config = new DataCacheConfig(
               cacheSize         = 8192,
-              bytePerLine       = 32,
+              bytePerLine       = 16,
               wayCount          = 1,
               addressWidth      = 32,
               cpuDataWidth      = 32,
@@ -95,7 +95,7 @@ object VexRiscvAxiCacheBp{
             earlyBranch = false,
             catchAddressMisaligned = false,
             prediction = DYNAMIC,
-            historyRamSizeLog2 = 5,
+            historyRamSizeLog2 = 6,
             historyWidth = 2
           ),
           new CsrPlugin(
